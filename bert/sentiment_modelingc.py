@@ -139,27 +139,54 @@ class JointMMwithRel(nn.Module):
         self.activation = nn.Tanh()
         self.classifier = nn.Linear(config.hidden_size, 4)
 
-        # resnet
+        # # resnet
         self.align_res=nn.Linear(2048,config.hidden_size)
-        self.res2span=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        # self.res2span=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
         
-        # image labels
-        self.img_label_emb=nn.Embedding(100,config.hidden_size)
-        self.imgLa2text=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)#config.hidden_size=768 
-        self.align_imgLA_and_text=nn.Linear(config.hidden_size*2,config.hidden_size)
-        self.dropout_label=nn.Dropout(0.1)
+        # # image labels
+        # self.img_label_emb=nn.Embedding(100,config.hidden_size)
+        # self.imgLa2text=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)#config.hidden_size=768 
+        # self.align_imgLA_and_text=nn.Linear(config.hidden_size*2,config.hidden_size)
+        # self.dropout_label=nn.Dropout(0.1)
 
-        # text2span
+        # # text2span
         # self.text2span=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
 
-        # all
-        self.align_all_1=nn.Linear(2*config.hidden_size,2*config.hidden_size)
-        self.align_all_2=nn.Linear(2*config.hidden_size,1*config.hidden_size)
-        self.dropout_all=nn.Dropout(0.1)
+        # # all
+        # self.align_all_1=nn.Linear(2*config.hidden_size,2*config.hidden_size)
+        # self.align_all_2=nn.Linear(2*config.hidden_size,1*config.hidden_size)
+        # self.dropout_all=nn.Dropout(0.1)
         
-        #text image attention
+        # text image attention
         # self.tiattention1=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
         # self.tiattention2=MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+
+        # Modal complementation module
+        self.txt2txt = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.img2img = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.img2txt = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.txt2img = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        # self.FFN1 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN2 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN3 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN4 = nn.Linear(config.hidden_size,config.hidden_size)
+
+        self.attention1 = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.MLP1=nn.Linear(config.hidden_size*2,config.hidden_size)
+        self.dropout_label=nn.Dropout(0.1)
+
+        # polarity classification
+        self.txt2aspect = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.img2aspect = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.aspect2txt = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        self.aspect2img = MultiHeadAttention(8,config.hidden_size,config.hidden_size,config.hidden_size)
+        # self.FFN5 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN6 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN7 = nn.Linear(config.hidden_size,config.hidden_size)
+        # self.FFN8 = nn.Linear(config.hidden_size,config.hidden_size)
+        self.MLP2 = nn.Linear(2*config.hidden_size,2*config.hidden_size)
+        self.MLP3 = nn.Linear(2*config.hidden_size,config.hidden_size)
+        self.dropout_all=nn.Dropout(0.1)
 
         def init_weights(module):
             if isinstance(module, (nn.Linear, nn.Embedding)):
@@ -195,7 +222,7 @@ class JointMMwithRel(nn.Module):
             sequence_output_raw = all_encoder_layers[-1] #[N,L,D]#[4,96,768]
             
             ###################################################################
-            # now method
+            # wzq method
             # res_feture_R,_=self.tiattention1(res_feture,sequence_output_raw,sequence_output_raw)  # img&text CA
             # #print(res_feture_R.shape)[4,49,768]          
             # imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture_R,res_feture_R)  # imgLa_and_text：fusion feature
@@ -203,11 +230,27 @@ class JointMMwithRel(nn.Module):
             # #print(imgLa_and_text.shape)#[4,96,768]
             # sequence_output =self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2))) # fusion/img_text concat
             ###################################################################
-
-            # 1\JML  ablation
-            imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture,res_feture)
-            sequence_output = self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2)))
             
+            ###################################################################
+            # 1\JML  ablation
+            # imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture,res_feture)
+            # sequence_output = self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2)))
+            ###################################################################
+
+            ###################################################################
+            # new
+            t2t,_ = self.txt2txt(sequence_output_raw,sequence_output_raw,sequence_output_raw)
+            # t2t = self.FFN1(t2t)
+            i2i,_ = self.img2img(res_feture,res_feture,res_feture)
+            # i2i = self.FFN2(i2i)
+
+            i2t,_ = self.img2txt(i2i,t2t,t2t)
+            # i2t = self.FFN3(i2t)
+            t2i,_ = self.txt2img(t2t,i2i,i2i)
+            # t2i = self.FFN4(t2i)
+            sequence_output = self.dropout_label(self.MLP1(torch.cat([self.attention1(t2i,i2t,i2t)[0],sequence_output_raw],2)))
+            ###################################################################
+
             ae_logits = self.binary_affine(sequence_output)   # [N, L, 2]  抽取方面词
             start_logits, end_logits = ae_logits.split(1, dim=-1)
             start_logits = start_logits.squeeze(-1)
@@ -217,19 +260,19 @@ class JointMMwithRel(nn.Module):
             end_loss = distant_cross_entropy(end_logits, end_positions)
             ae_loss = (start_loss + end_loss) / 2
 
-            span_output, span_mask = get_span_representation(span_starts, span_ends, sequence_output,
-                                                             attention_mask)  # [N*M, JR, D], [N*M, JR]  获取方面词序列特征
+            span_output, span_mask = get_span_representation(start_logits, end_logits, sequence_output,
+                                                             attention_mask)  # [N*M, JR, D], [N*M, JR]  在整个句子中抽取方面词序列特征
             span_score = self.unary_affine(span_output)
             span_score = span_score.squeeze(-1)  # [N*M, JR]
 
-            span_pooled_output = get_self_att_representation(span_output, span_score, span_mask)  # [N*M, D]
+            span_pooled_output = get_self_att_representation(span_output, span_score, span_mask)  # [N*M, D] 对特征进行一次softmax
             span_pooled_output = self.dense(span_pooled_output)
             
             span_pooled_output = self.activation(span_pooled_output)
             span_pooled_output = self.dropout(span_pooled_output)
 
             ###################################################################
-            # now method
+            # wzq method
             ### take spanfeature as K,V
             # res_feature_V,_ = self.tiattention2(res_feture,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
             # # print('resfeatureVsize:',res_feature_V.size()) # 4,49,768
@@ -250,10 +293,26 @@ class JointMMwithRel(nn.Module):
             # span_pooled_output = self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_image_output,span_text_output],-1))))
             ###################################################################
 
+            ###################################################################
             # 1\JML ablation
-            span_image_output = flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feture,res_feture)[0])#[N*M,D]
-            span_pooled_output = self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_pooled_output,span_image_output],-1))))
+            # span_image_output = flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feture,res_feture)[0])#[N*M,D]
+            # span_pooled_output = self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_pooled_output,span_image_output],-1))))
+            ###################################################################
 
+            ###################################################################
+            # new
+            t2a,_ = self.txt2aspect(sequence_output_raw,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # t2a = self.FFN5(t2a)
+            i2a,_ = self.img2aspect(res_feture,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # i2a = self.FFN6(i2a)
+            a2t,_ = self.aspect2txt(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),t2a,t2a)
+            # a2t = self.FFN7(a2t)
+            a2i,_ = self.aspect2img(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),i2a,i2a)
+            # a2i = self.FFN8(a2i)
+            aspect2text = flatten(a2t)
+            aspect2img = flatten(a2i)
+            span_pooled_output = self.MLP3(self.dropout_all(self.MLP2(torch.cat([aspect2text,aspect2img],-1))))
+            ###################################################################
 
             ac_logits = self.classifier(span_pooled_output)  # [N*M, 5]
             ac_loss_fct = CrossEntropyLoss(reduction='none')
@@ -272,14 +331,31 @@ class JointMMwithRel(nn.Module):
             #print(sequence_output_raw.shape)[4,96,768]
 
             ###################################################################
+            # wzq
             # res_feture_R,_=self.tiattention1(res_feture,sequence_output_raw,sequence_output_raw)
             # imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture_R,res_feture_R)
             # sequence_output =self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2)))
             ###################################################################
             
+            ###################################################################
             # 1\JML ablation
-            imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture,res_feture)
-            sequence_output =self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2)))
+            # imgLa_and_text,_=self.imgLa2text(sequence_output_raw,res_feture,res_feture)
+            # sequence_output =self.dropout_label(self.align_imgLA_and_text(torch.cat([sequence_output_raw,imgLa_and_text],2)))
+            ###################################################################
+
+            ###################################################################
+            # new
+            t2t,_ = self.txt2txt(sequence_output_raw,sequence_output_raw,sequence_output_raw)
+            # t2t = self.FFN1(t2t)
+            i2i,_ = self.img2img(res_feture,res_feture,res_feture)
+            # i2i = self.FFN2(i2i)
+
+            i2t,_ = self.img2txt(i2i,t2t,t2t)
+            # i2t = self.FFN3(i2t)
+            t2i,_ = self.txt2img(t2t,i2i,i2i)
+            # t2i = self.FFN4(t2i)
+            sequence_output = self.dropout_label(self.MLP1(torch.cat([self.attention1(t2i,i2t,i2t)[0],sequence_output_raw],2)))
+            ###################################################################
 
             ae_logits = self.binary_affine(sequence_output)
             start_logits, end_logits = ae_logits.split(1, dim=-1)
@@ -302,6 +378,7 @@ class JointMMwithRel(nn.Module):
             span_pooled_output = self.dropout(span_pooled_output)
             
             ###################################################################
+            # wzq
             # get the info from the text and resnet
             # all_encoder_layers, _ = self.bert(input_ids, token_type_ids, attention_mask)
             # sequence_output_raw = all_encoder_layers[-1]
@@ -311,10 +388,86 @@ class JointMMwithRel(nn.Module):
             # span_pooled_output = self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_image_output,span_text_output],-1))))
             ###################################################################
 
+            ###################################################################
             # 1\JML ablation
-            span_image_output= flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feture,res_feture)[0])#[N*M,D]
-            span_pooled_output=self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_pooled_output,span_image_output],-1))))
+            # span_image_output= flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feture,res_feture)[0])#[N*M,D]
+            # span_pooled_output=self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_pooled_output,span_image_output],-1))))
+            ###################################################################
+
+            ###################################################################
+            # new
+            all_encoder_layers, _ = self.bert(input_ids, token_type_ids, attention_mask)
+            sequence_output_raw = all_encoder_layers[-1]
+
+            t2a,_ = self.txt2aspect(sequence_output_raw,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # t2a = self.FFN5(t2a)
+            i2a,_ = self.img2aspect(res_feture,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # i2a = self.FFN6(i2a)
+            a2t,_ = self.aspect2txt(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),t2a,t2a)
+            # a2t = self.FFN7(a2t)
+            a2i,_ = self.aspect2img(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),i2a,i2a)
+            # a2i = self.FFN8(a2i)
             
+            aspect2text = flatten(a2t)
+            aspect2img = flatten(a2i)
+            span_pooled_output = self.MLP3(self.dropout_all(self.MLP2(torch.cat([aspect2text,aspect2img],-1))))
+            ###################################################################
+
+            ac_logits = self.classifier(span_pooled_output)  # [N*M, 5]
+            return reconstruct(ac_logits, span_starts) # , torch.gt(relations,0.5)
+        
+        elif mode == 'masc':
+            all_encoder_layers, _ = self.bert(input_ids, token_type_ids, attention_mask)
+            sequence_output_raw = all_encoder_layers[-1]
+            
+            batch_size=sequence_output_raw.size()[0]
+            span_output, span_mask = get_span_representation(span_starts, span_ends, sequence_output_raw,
+                                                             attention_mask)  # [N*M, JR, D], [N*M, JR]
+
+            span_score = self.unary_affine(span_output)
+            span_score = span_score.squeeze(-1)  # [N*M, JR]
+            span_pooled_output = get_self_att_representation(span_output, span_score, span_mask)  # [N*M, D]
+
+            span_pooled_output = self.dense(span_pooled_output)
+            span_pooled_output = self.activation(span_pooled_output)
+            span_pooled_output = self.dropout(span_pooled_output)
+            
+            ###################################################################
+            # wzq
+            # get the info from the text and resnet
+            # all_encoder_layers, _ = self.bert(input_ids, token_type_ids, attention_mask)
+            # sequence_output_raw = all_encoder_layers[-1]
+            # res_feature_V,_ = self.tiattention2(res_feture,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # span_image_output = flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feature_V,res_feature_V)[0])
+            # span_text_output = flatten(self.text2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),sequence_output_raw,sequence_output_raw)[0])
+            # span_pooled_output = self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_image_output,span_text_output],-1))))
+            ###################################################################
+
+            ###################################################################
+            # 1\JML ablation
+            # span_image_output= flatten(self.res2span(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),res_feture,res_feture)[0])#[N*M,D]
+            # span_pooled_output=self.align_all_2(self.dropout_all(self.align_all_1(torch.cat([span_pooled_output,span_image_output],-1))))
+            ###################################################################
+
+            ###################################################################
+            # new
+            # all_encoder_layers, _ = self.bert(input_ids, token_type_ids, attention_mask)
+            # sequence_output_raw = all_encoder_layers[-1]
+
+            t2a,_ = self.txt2aspect(sequence_output_raw,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # t2a = self.FFN5(t2a)
+            i2a,_ = self.img2aspect(res_feture,span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]))
+            # i2a = self.FFN6(i2a)
+            a2t,_ = self.aspect2txt(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),t2a,t2a)
+            # a2t = self.FFN7(a2t)
+            a2i,_ = self.aspect2img(span_pooled_output.reshape(batch_size,-1,span_pooled_output.size()[-1]),i2a,i2a)
+            # a2i = self.FFN8(a2i)
+            
+            aspect2text = flatten(a2t)
+            aspect2img = flatten(a2i)
+            span_pooled_output = self.MLP3(self.dropout_all(self.MLP2(torch.cat([aspect2text,aspect2img],-1))))
+            ###################################################################
+
             ac_logits = self.classifier(span_pooled_output)  # [N*M, 5]
             return reconstruct(ac_logits, span_starts) # , torch.gt(relations,0.5)
 

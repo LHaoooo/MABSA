@@ -402,6 +402,8 @@ def span_annotate_candidates(all_examples, batch_features, batch_results, filter
         batch_span_ends.append(span_ends)
         batch_labels.append(labels)
         batch_label_masks.append(label_masks)
+        # print('batch_span_starts:\n',batch_span_starts)
+        # print('span ends:\n',batch_span_ends)
     return batch_span_starts, batch_span_ends, batch_labels, batch_label_masks
 
 def ts2start_end(ts_tag_sequence):

@@ -18,7 +18,7 @@ from bert.modeling import BertConfig
 from bert.sentiment_modelingc import JointMMwithRel
 from absa.utils import read_absa_data, convert_absa_data, convert_examples_to_features, RawFinalResult, RawSpanResult, span_annotate_candidates
 from absa.run_base import copy_optimizer_params_to_model, set_optimizer_params_grad, prepare_optimizer,prepare_optimizer_2,prepare_optimizer_3, post_process_loss, bert_load_state_dict
-from absa.eval_metric import eval_absa
+from absa.eval_metric import eval_absa, eval_mate, eval_masc
 
 from utils1.data_loader_bb import DataLoader as DLbb
 from torch import nn as nn
@@ -140,6 +140,7 @@ def run_train_epoch(args,  global_step, model, param_optimizer,
                                                                                args.max_answer_length,
                                                                                args.do_lower_case,
                                                                                args.verbose_logging, logger)
+        # print('span_start_length:',len(span_starts)[0])
 
         span_starts = torch.tensor(span_starts, dtype=torch.long)
         span_ends = torch.tensor(span_ends, dtype=torch.long)
@@ -187,12 +188,18 @@ def run_train_epoch(args,  global_step, model, param_optimizer,
             if global_step % save_checkpoints_steps == 0 and count != 0:  # and global_step >= 105
                 logger.info("***** Running evaluation *****")
                 model.eval()
+                # MABSA results
                 metrics =      evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger)
                 metrics_test = evaluate(args, model, device, test_examples, test_features, test_dataloader, logger)
-                print("metrics")
-                print(metrics)
+                # MATE results
+                mate_metrics = evaluate_mate(args, model, device, eval_examples, eval_features, eval_dataloader, logger)
+                mate_metrics_test = evaluate_mate(args, model, device, test_examples, test_features, test_dataloader, logger)
+                # MASC results
+                masc_metrics = evaluate_masc(args, model, device, eval_examples, eval_features, eval_dataloader, logger)
+                masc_metrics_test = evaluate_masc(args, model, device, test_examples, test_features, test_dataloader, logger)
                 
                 # torch.cuda.empty_cache()
+                # write mabsa
                 f = open(log_path, "a")
                 print("dev step: {}, loss: {:.4f}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
                       .format(global_step, running_loss / count, metrics['p'], metrics['r'],
@@ -201,6 +208,26 @@ def run_train_epoch(args,  global_step, model, param_optimizer,
                 print("test step: {}, loss: {:.4f}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
                       .format(global_step, running_loss / count, metrics_test['p'], metrics_test['r'],
                               metrics_test['f1'], metrics_test['common'], metrics_test['retrieved'], metrics_test['relevant']), file=f)
+                # write mate
+                f = open(log_path, "a")
+                print("mate dev step: {}, loss: {:.4f}, MATE_P: {:.4f}, MATE_R: {:.4f}, MATE_F1: {:.4f} (MATE_common: {}, MATE_retrieved: {}, MATE_relevant: {})"
+                      .format(global_step, running_loss / count, mate_metrics['mate_p'], mate_metrics['mate_r'],
+                              mate_metrics['mate_f1'], mate_metrics['mate_common'], mate_metrics['mate_retrieved'], 
+                              mate_metrics['mate_relevant']), file=f)
+                f = open(log_path, "a")
+                print("mate test step: {}, loss: {:.4f}, MATE_P: {:.4f}, MATE_R: {:.4f}, MATE_F1: {:.4f} (MATE_common: {}, MATE_retrieved: {}, MATE_relevant: {})"
+                      .format(global_step, running_loss / count, mate_metrics_test['mate_p'], mate_metrics_test['mate_r'],
+                              mate_metrics_test['mate_f1'], mate_metrics_test['mate_common'], mate_metrics_test['mate_retrieved'], 
+                              mate_metrics_test['mate_relevant']), file=f)
+                # write masc
+                f = open(log_path, "a")
+                print("masc dev step: {}, loss: {:.4f}, MASC_acc: {:.4f}, MASC_F1: {:.4f} (MASC_common: {}, MASC_retrieved: {}, MASC_relevant: {})"
+                      .format(global_step, running_loss / count, masc_metrics['masc_acc'], masc_metrics['f1'], 
+                              masc_metrics['masc_common'], masc_metrics['masc_retrieved'], masc_metrics['masc_relevant']), file=f)
+                f = open(log_path, "a")
+                print("masc test step: {}, loss: {:.4f}, MASC_acc: {:.4f}, MASC_F1: {:.4f} (MASC_common: {}, MASC_retrieved: {}, MASC_relevant: {})"
+                      .format(global_step, running_loss / count, masc_metrics_test['masc_acc'], masc_metrics_test['masc_f1'], 
+                              masc_metrics_test['masc_common'], masc_metrics_test['masc_retrieved'], masc_metrics_test['masc_relevant']), file=f)
                 print(" ", file=f)
                 f.close()
                 running_loss, count = 0.0, 0
@@ -216,11 +243,12 @@ def run_train_epoch(args,  global_step, model, param_optimizer,
                     }, save_path)
                 if args.debug:
                     break
-    print("*"*50)
     return global_step, model, best_f1
 
 def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=False):
-    print("in to evaluate evaluate evaluate ")
+    print('-'*50)
+    print("JMASA evaluate")
+    print('-'*50)
     all_results = []
     input_ids_all=[]
     image_raw_data_all=[]
@@ -279,7 +307,7 @@ def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader,
     
     metrics, all_nbest_json = eval_absa(eval_examples, eval_features, all_results,
                                         args.do_lower_case, args.verbose_logging, logger)
-    print("metrics")
+    print("JMASA metrics:")
     print(metrics)
 
     if write_pred:
@@ -287,6 +315,123 @@ def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader,
         with open(output_file, "w") as writer:
             writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
         logger.info("Writing predictions to: %s" % (output_file))
+    return metrics
+
+def evaluate_mate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=False):
+    print('-'*50)
+    print("MATE evaluate ")
+    print('-'*50)
+    all_results = []
+    input_ids_all=[]
+    image_raw_data_all=[]
+    attention_mask_all =[]
+    for batch in eval_dataloader:
+        batch = tuple(t.to(device) for t in batch)
+        input_ids, input_mask, segment_ids, example_indices,start_positions, end_positions,bio_labels,polarity_positions, image_labels,image_raw_data = batch
+
+        input_ids_all.append(input_ids)
+        image_raw_data_all.append(image_raw_data)
+        attention_mask_all.append(input_mask)
+        with torch.no_grad():
+            batch_start_logits, batch_end_logits, _ = model('extraction', input_mask,
+                                                                          input_ids=input_ids,
+                                                                          token_type_ids=segment_ids,
+                                                                          image_labels=image_labels,
+                                                                          image_raw_data=image_raw_data)
+
+        batch_features, batch_results = [], []
+        for j, example_index in enumerate(example_indices):
+            start_logits = batch_start_logits[j].detach().cpu().tolist()
+            end_logits = batch_end_logits[j].detach().cpu().tolist()
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            batch_features.append(eval_feature)
+            batch_results.append(RawSpanResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+
+        span_starts, span_ends, _, label_masks = span_annotate_candidates(eval_examples, batch_features, batch_results,
+                                                                          args.filter_type, True,
+                                                                          args.use_heuristics, args.use_nms,
+                                                                          args.logit_threshold, args.n_best_size,
+                                                                          args.max_answer_length, args.do_lower_case,
+                                                                          args.verbose_logging, logger)#false---true
+
+        span_starts = torch.tensor(span_starts, dtype=torch.long).to(device)
+        span_ends = torch.tensor(span_ends, dtype=torch.long).to(device)
+
+        for j, example_index in enumerate(example_indices):
+            # cls_pred = batch_ac_logits[j].detach().cpu().numpy().argmax(axis=1).tolist()
+            start_indexes = span_starts[j].detach().cpu().tolist()
+            end_indexes = span_ends[j].detach().cpu().tolist()
+            span_masks = label_masks[j]
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            all_results.append(RawFinalResult(unique_id=unique_id, start_indexes=start_indexes,
+                                              end_indexes=end_indexes, cls_pred = None, span_masks=span_masks))
+    
+    metrics, all_nbest_json = eval_mate(eval_examples, eval_features, all_results,
+                                        args.do_lower_case, args.verbose_logging, logger)
+    print("MATE metrics")
+    print(metrics)
+
+    return metrics
+
+def evaluate_masc(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=False):
+    print('-'*50)
+    print("MASC evaluate")
+    print('-'*50)
+    all_results = []
+    input_ids_all=[]
+    image_raw_data_all=[]
+    attention_mask_all =[]
+    for batch in eval_dataloader:
+        batch = tuple(t.to(device) for t in batch)
+        input_ids, input_mask, segment_ids, example_indices,start_positions, end_positions,bio_labels,polarity_positions, image_labels,image_raw_data = batch
+
+        input_ids_all.append(input_ids)
+        image_raw_data_all.append(image_raw_data)
+        attention_mask_all.append(input_mask)
+
+        batch_features, batch_results = [], []
+        for j, example_index in enumerate(example_indices):
+            start_logits = start_positions[j].detach().cpu().tolist()
+            end_logits = end_positions[j].detach().cpu().tolist()
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            batch_features.append(eval_feature)
+            batch_results.append(RawSpanResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+
+        span_starts, span_ends, _, label_masks = span_annotate_candidates(eval_examples, batch_features, batch_results,
+                                                                          args.filter_type, True,
+                                                                          args.use_heuristics, args.use_nms,
+                                                                          args.logit_threshold, args.n_best_size,
+                                                                          args.max_answer_length, args.do_lower_case,
+                                                                          args.verbose_logging, logger)#false---true
+
+        span_starts = torch.tensor(span_starts, dtype=torch.long).to(device)
+        span_ends = torch.tensor(span_ends, dtype=torch.long).to(device)
+
+        with torch.no_grad():
+            batch_ac_logits = model('masc', input_mask, input_ids=input_ids,
+                                    span_starts=span_starts,
+                                    span_ends=span_ends, image_labels=image_labels,
+                                    image_raw_data=image_raw_data)    # [N, M, 4] 
+
+        for j, example_index in enumerate(example_indices):
+            cls_pred = batch_ac_logits[j].detach().cpu().numpy().argmax(axis=1).tolist()
+            start_indexes = span_starts[j].detach().cpu().tolist()
+            end_indexes = span_ends[j].detach().cpu().tolist()
+
+            span_masks = label_masks[j]
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            all_results.append(RawFinalResult(unique_id=unique_id, start_indexes=start_indexes,
+                                              end_indexes=end_indexes, cls_pred=cls_pred, span_masks=span_masks))
+    
+    metrics, all_nbest_json = eval_masc(eval_examples, eval_features, all_results,
+                                        args.do_lower_case, args.verbose_logging, logger)
+    print("MASC metrics:")
+    print(metrics)
+
     return metrics
 
 def main():
@@ -323,7 +468,7 @@ def main():
                              "longer than this will be truncated, and sequences shorter than this will be padded.")
     parser.add_argument("--do_train", default=False, action='store_true', help="Whether to run training.")
     parser.add_argument("--do_predict", default=False, action='store_true', help="Whether to run eval on the dev set.")
-    parser.add_argument("--train_batch_size", default=4, type=int, help="Total batch size for training.")
+    parser.add_argument("--train_batch_size", default=64, type=int, help="Total batch size for training.")
     parser.add_argument("--predict_batch_size", default=4, type=int, help="Total batch size for predictions.")
     parser.add_argument("--learning_rate", default=2e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--learning_rate_pretrained", default=1e-6, type=float, help="The initial learning rate for Adam.")
@@ -331,7 +476,7 @@ def main():
     parser.add_argument("--warmup_proportion", default=0.1, type=float,
                         help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10% "
                              "of training.")
-    parser.add_argument("--save_proportion", default=0.5, type=float,
+    parser.add_argument("--save_proportion", default=0.01, type=float,
                         help="Proportion of steps to save models for. E.g., 0.5 = 50% of training.")
     parser.add_argument("--n_best_size", default=20, type=int,
                         help="The total number of n-best predictions to generate in the nbest_predictions.json "
@@ -348,7 +493,7 @@ def main():
                              "A number of warnings are expected for a normal SQuAD evaluation.")
     parser.add_argument("--no_cuda",default=False,action='store_true',help="Whether not to use CUDA when available")
     parser.add_argument('--seed',type=int,default=404,help="random seed for initialization")
-    parser.add_argument('--gradient_accumulation_steps',type=int,default=1,
+    parser.add_argument('--gradient_accumulation_steps',type=int,default=8,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--local_rank",type=int,default=-1,help="local_rank for distributed training on gpus")#-1
     parser.add_argument("--gpu_idx",type=int,default=5,help="local_rank for distributed training on gpus")
@@ -395,6 +540,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if n_gpu > 0:
+        torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
 
     bert_config = BertConfig.from_json_file(args.bert_config_file)
@@ -482,13 +628,13 @@ def main():
         logger.info("***** Running training *****")
         best_f1 = 0
         save_checkpoints_steps = int(num_train_steps / (5 * args.num_train_epochs))
-        start_save_steps = int(num_train_steps * args.save_proportion)
+        # start_save_steps = int(num_train_steps * args.save_proportion)
 
         dlbb = DLbb(args,tokenizer)
         if args.debug:
             args.num_train_epochs = 1
             save_checkpoints_steps = 20
-            start_save_steps = 0
+            # start_save_steps = 0
         model.train()
         last_model_pp =None
         for epoch in range(int(args.num_train_epochs)):
@@ -499,6 +645,7 @@ def main():
                                                           test_examples, test_features, test_dataloader,
                                                           optimizer, n_gpu, device, logger, log_path, save_path,
                                                           save_checkpoints_steps, best_f1) 
+        print("*"*50)
 
     if args.do_predict:
         logger.info("***** Running prediction *****")
@@ -514,13 +661,22 @@ def main():
 
         model.eval()
         metrics = evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=True)
+        mate_metrics = evaluate_mate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=True)
+        masc_metrics = evaluate_masc(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=True)
+
         f = open(log_path, "a")
-        print(metrics)
         print("threshold: {}, step: {}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
               .format(args.logit_threshold, global_step, metrics['p'], metrics['r'],
                       metrics['f1'], metrics['common'], metrics['retrieved'], metrics['relevant']), file=f)
+        print("threshold: {}, step: {}, mate_P: {:.4f}, mate_R: {:.4f}, mate_F1: {:.4f} (mate_common: {}, mate_retrieved: {}, mate_relevant: {})"
+              .format(args.logit_threshold, global_step, mate_metrics['mate_p'], mate_metrics['mate_r'],
+                      mate_metrics['mate_f1'], mate_metrics['mate_common'], mate_metrics['mate_retrieved'], mate_metrics['mate_relevant']), file=f)
+        print("threshold: {}, step: {}, masc_acc: {:.4f}, masc_F1: {:.4f} (masc_common: {}, masc_retrieved: {}, masc_relevant: {})"
+              .format(args.logit_threshold, global_step, masc_metrics['masc_acc'], masc_metrics['masc_f1'], 
+                      masc_metrics['masc_common'], masc_metrics['masc_retrieved'], masc_metrics['masc_relevant']), file=f)
         print(" ", file=f)
         f.close()
+        print("*"*50)
 
 def burnin_schedule(i):
     if i < 10:

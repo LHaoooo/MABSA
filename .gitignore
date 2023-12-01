@@ -164,3 +164,8 @@ cython_debug/
 *results
 *.pth
 *data
+*data1
+*JMLwoRelation
+*new
+*new_ffn
+*WZQ

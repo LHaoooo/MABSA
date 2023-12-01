@@ -22,6 +22,7 @@ import collections
 import unicodedata
 import six
 from numpy import unicode
+# from numpy import str_
 
 
 def convert_to_unicode(text):
